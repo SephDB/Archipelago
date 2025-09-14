@@ -783,6 +783,19 @@ class HasCount(Rule[OSRSWorld],game="OSRSWorld"):
             result = self._evaluate(state)
             return f'{"Has at least" if result else "Need at least"} {self.needed_count} items from ({", ".join([f"{state.count(x,self.player)}x {x}" for x in self.task_list])}'
         
+        @override
+        def explain_json(self, state: CollectionState | None = None) -> list[JSONMessagePart]:
+            if state is None:
+                return [{"type":"text","text":str(self)}]
+            result = self._evaluate(state)
+            messages: list[JSONMessagePart] = [{"type": "text", "text": f'{"Has at least" if result else "Need at least"} {self.needed_count} items from ('}]
+            for i, x in enumerate(self.task_list):
+                if i > 0:
+                    messages.append({"type": "text", "text": " & "})
+                messages.append({"type":"text", "text":f"{state.count(x,self.player)}x {x}"})
+            messages.append({"type": "text", "text": ")"})
+            return messages
+        
         def __str__(self) -> str:
             return f"Need at least {self.needed_count} from ({', '.join(self.task_list)})"
 
@@ -830,7 +843,14 @@ class HasTraining(Rule["OSRSWorld"],game="OSRSWorld"):
             if result:
                 return f"Can train level {self.skill_level} {self.skill_name}"
             else:
-                return f"Can't train level {self.skill_level} {self.skill_name}"
+                training_levels = sorted([int(v.rsplit("_",1)[1]) for v in state.prog_items[self.player] if v.startswith(f"Training_{self.skill_name}")])
+                training_level = training_levels[-1] if len(training_levels)>0 else 0
+                quest_training = self.qp_rise*(state.count("Quest Point",self.player)//self.qp_run)
+                return f"Can't train level {self.skill_level} {self.skill_name} ({f'{training_level+quest_training}' if training_level else 'None'})"
+        
+        @override
+        def explain_json(self, state: CollectionState|None = None) ->list[JSONMessagePart]:
+            return [{"type":"text","text":self.explain_str(state)}]
         
         def __str__(self) -> str:
             return f"Train level {self.skill_level} {self.skill_name}"
