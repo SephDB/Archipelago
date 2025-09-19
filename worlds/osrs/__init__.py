@@ -84,6 +84,8 @@ class OSRSWorld(RuleWorldMixin, World):
         super().__init__(multiworld, player)
         self.region_name_to_data: typing.Dict[str, Region] = {}
         self.location_name_to_data: typing.Dict[str, OSRSLocation] = {}
+        self.training_to_data: typing.Dict[str, OSRSLocation] = {}
+        self.training_to_row: typing.Dict[str, TrainingRow] = {}
 
         self.starting_area_item = ""
 
@@ -141,6 +143,40 @@ class OSRSWorld(RuleWorldMixin, World):
         data["starting_area"] = str(self.starting_area_item) #these aren't actually strings, they just play them on tv
         data["goal_task"] = self.options.goal_location.value
         return data
+
+    def explain_rule(self, dest_name: str, state: CollectionState):
+        dest_name = dest_name.lower()
+        if dest_name in [skill.lower() for skill in skill_names]:
+            if dest_name in ("attack","strength","defence","prayer","hitpoints","combat","hp"):
+                if state.can_reach_region("kill_Monster[+]",self.player):
+                    return [{"type":"text","text": f"Standard combat skill to level {1+(state.count('Quest Point',self.player)//2)}"}]
+                else:
+                    return [{"type":"text","text":"Standard combat skill, but no monster to kill to level"}]
+            elif dest_name == "slayer":
+                if state.can_reach_region("PointSlayerMasters[+]",self.player):
+                    return [{"type":"text","text": f"Slayer skill to level {1+(state.count('Quest Point',self.player)//2)}"}]
+                else:
+                    return [{"type":"text","text":"Slayer skill, but no master to get tasks"}]
+            elif dest_name == "ranged":
+                if state.can_reach_region("kill_Monster[+]",self.player) and state.can_reach_region("Iron arrow",self.player):
+                    return [{"type":"text","text": f"Standard combat skill to level {1+(state.count('Quest Point',self.player)//2)}"}]
+                else:
+                    return [{"type":"text","text":"Standard combat skill, but no monster to kill to level (or no iron arrows)"}]
+            else:
+                relevent_methods = sorted([method_name for method_name,method in self.training_to_row.items() if method.skill_name.lower() == dest_name and self.training_to_data[method_name].can_reach(state)],key=lambda method_name: self.training_to_row[method_name].required_level)
+                return_list = []
+                delta_level = self.options.base_training_levels + ((state.count("Quest Point",self.player)//self.options.qp_per_level) * self.options.levels_per_qp)
+                for method_name in relevent_methods:
+                    loc = self.training_to_data[method_name]
+                    method = self.training_to_row[method_name]
+                    if "Unlock ~|Herblore|~ after Druidic Ritual" in loc.name:
+                        return_list.extend([{"type":"text","text":f"{method.required_level} -> {method.required_level + 2} via "},{"type": "color", "color": "salmon", "text": loc.name},{"type":"text","text":"\n"}])
+                        continue
+                    return_list.extend([{"type":"text","text":f"{method.required_level} -> {method.required_level + delta_level} via "},{"type": "color", "color": "salmon", "text": loc.name},{"type":"text","text":"\n"}])
+                return return_list
+
+        else:
+            return None
 
     def parse_rule(self, rule_element: RuleElement):
         if rule_element.type == "has": #literal ap item has
@@ -697,6 +733,8 @@ class OSRSWorld(RuleWorldMixin, World):
             method.place_locked_item(self.create_event(f"Training_{training_row.skill_name}_{training_row.required_level+self.options.base_training_levels.value}"))
         method.show_in_spoiler = False
         parent_region.locations.append(method)
+        self.training_to_data[method.name] = method
+        self.training_to_row[method.name] = training_row
 
     def create_region(self, name: str) -> "Region":
         region = Region(name, self.player, self.multiworld)
